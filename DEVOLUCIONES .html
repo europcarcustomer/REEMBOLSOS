@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Europcar | Dashboard Inteligente</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        :root { --europcar-green: #008542; --bg-gray: #f4f7f6; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg-gray); margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: auto; display: grid; grid-template-columns: 1fr 380px; gap: 20px; }
+        .header { grid-column: 1 / span 2; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; border-left: 8px solid var(--europcar-green); }
+        .logo { background: var(--europcar-green); color: white; padding: 10px 25px; border-radius: 6px; font-weight: bold; font-size: 20px; }
+        .main-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); overflow-x: auto; min-height: 500px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: var(--europcar-green); color: white; padding: 12px; text-align: left; font-size: 13px; position: sticky; top: 0; }
+        td { padding: 12px; border-bottom: 1px solid #eee; font-size: 13px; }
+        .sidebar { display: flex; flex-direction: column; gap: 20px; }
+        .filter-card, .chart-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .stat-box { background: var(--europcar-green); color: white; padding: 25px; border-radius: 15px; text-align: center; }
+        .monto-total { font-size: 32px; font-weight: 900; color: #ffeb3b; display: block; margin-top: 10px; }
+        select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px; font-weight: bold; cursor: pointer; }
+        label { font-size: 11px; color: #666; font-weight: bold; display: block; margin-bottom: 5px; text-transform: uppercase; }
+        .btn-download { width: 100%; padding: 15px; background: #2e7d32; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .btn-download:hover { background: #1b5e20; }
+        .ranking-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1 style="margin:0;">ANÁLISIS DE DEVOLUCIONES Y MOTIVOS</h1>
+        <div class="logo">EUROPCAR</div>
+    </div>
+
+    <div class="main-card">
+        <table id="tablaDatos">
+            <thead>
+                <tr>
+                    <th>Contrato</th>
+                    <th>Agencia</th>
+                    <th>Mes/Año</th>
+                    <th>Motivo (Falla)</th>
+                    <th>Valor</th>
+                </tr>
+            </thead>
+            <tbody id="cuerpoTabla"></tbody>
+        </table>
+    </div>
+
+    <aside class="sidebar">
+        <div class="stat-box">
+            <span>MONTO TOTAL FILTRADO</span>
+            <span id="txtMonto" class="monto-total">$ 0.00</span>
+        </div>
+
+        <div class="filter-card">
+            <label>Año:</label>
+            <select id="filtroAnio" onchange="renderizar()">
+                <option value="2026">2026</option>
+                <option value="2025" selected>2025</option>
+                <option value="TODOS">TODOS LOS AÑOS</option>
+            </select>
+            <label>Mes:</label>
+            <select id="filtroMes" onchange="renderizar()"></select>
+            <label>Agencia:</label>
+            <select id="filtroAgencia" onchange="renderizar()"></select>
+            
+            <button class="btn-download" onclick="exportarExcel()">
+                <span>📊 DESCARGAR EXCEL FILTRADO</span>
+            </button>
+        </div>
+
+        <div class="chart-card">
+            <h3 style="margin-top:0; color: var(--europcar-green); font-size: 16px;">DISTRIBUCIÓN DE MOTIVOS</h3>
+            <canvas id="graficoMotivos"></canvas>
+            <div id="resumenMotivos" style="margin-top:15px;"></div>
+        </div>
+    </aside>
+</div>
+
+<script>
+    const URL_2026 = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS-jr3iWQgAk8QMqzhim0H52fIKeoka2XIO6x3HnphuIbjLrCDMbgRwjTjS0pY59jUmKcZMIbxdDO8H/pub?gid=26307393&single=true&output=csv';
+    const URL_2025 = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS-jr3iWQgAk8QMqzhim0H52fIKeoka2XIO6x3HnphuIbjLrCDMbgRwjTjS0pY59jUmKcZMIbxdDO8H/pub?gid=0&single=true&output=csv';
+
+    const ORDEN_MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+    let datosApp = [];
+    let filtradosActuales = []; // Para saber qué exportar
+    let miGrafico = null;
+
+    async function cargarConsolidado() {
+        try {
+            const [txt2026, txt2025] = await Promise.all([
+                fetch(`${URL_2026}&cb=${Date.now()}`).then(r => r.text()),
+                fetch(`${URL_2025}&cb=${Date.now()}`).then(r => r.text())
+            ]);
+            datosApp = [...procesarCSV(txt2026, "2026"), ...procesarCSV(txt2025, "2025")];
+            prepararFiltros();
+            renderizar();
+        } catch (error) { console.error(error); }
+    }
+
+    function procesarCSV(texto, anioDefault) {
+        const filas = texto.split(/\r?\n/).filter(f => f.trim() !== "");
+        if (filas.length < 2) return [];
+        const sep = filas[0].includes(';') ? ';' : ',';
+        const h = filas[0].split(sep).map(t => t.toUpperCase().trim().replace(/"/g, ''));
+        
+        const iCon = h.findIndex(c => c.includes("CONT")), iAge = h.findIndex(c => c.includes("AGEN")),
+              iMes = h.findIndex(c => c.includes("MES")), iVal = h.findIndex(c => c.includes("VAL") || c.includes("MONTO")),
+              iAnio = h.findIndex(c => c.includes("AÑO") || c.includes("ANO")), iFalla = h.findIndex(c => c.includes("FALLA"));
+
+        return filas.slice(1).map(f => {
+            const c = f.split(new RegExp(`${sep}(?=(?:(?:[^"]*"){2})*[^"]*$)`));
+            let v = (c[iVal] || "0").replace(/[^\d.,-]/g, '').replace(',', '.');
+            return {
+                contrato: (c[iCon] || "").replace(/"/g, '').trim(),
+                agencia: (c[iAge] || "N/A").replace(/"/g, '').trim(),
+                mes: (c[iMes] || "").replace(/"/g, '').trim().toUpperCase(),
+                anio: iAnio !== -1 && c[iAnio] ? c[iAnio].replace(/"/g, '').trim() : anioDefault,
+                motivo: iFalla !== -1 && c[iFalla] ? c[iFalla].replace(/"/g, '').trim().toUpperCase() : "OTRO",
+                valor: parseFloat(v) || 0
+            };
+        }).filter(d => d.contrato !== "");
+    }
+
+    function prepararFiltros() {
+        const selMes = document.getElementById('filtroMes');
+        const selAge = document.getElementById('filtroAgencia');
+        const ags = [...new Set(datosApp.map(d => d.agencia))].sort();
+        selAge.innerHTML = '<option value="TODOS">TODAS LAS AGENCIAS</option>';
+        ags.forEach(a => selAge.innerHTML += `<option value="${a}">${a}</option>`);
+        const mData = [...new Set(datosApp.map(d => d.mes))];
+        selMes.innerHTML = '<option value="TODOS">TODOS LOS MESES</option>';
+        ORDEN_MESES.forEach(m => { if(mData.includes(m)) selMes.innerHTML += `<option value="${m}">${m}</option>`; });
+    }
+
+    function renderizar() {
+        const fAnio = document.getElementById('filtroAnio').value, fMes = document.getElementById('filtroMes').value, fAge = document.getElementById('filtroAgencia').value;
+        const cuerpo = document.getElementById('cuerpoTabla'), resMot = document.getElementById('resumenMotivos');
+        
+        cuerpo.innerHTML = ""; resMot.innerHTML = "";
+        let total = 0, conteoMotivos = {};
+
+        filtradosActuales = datosApp.filter(d => {
+            return (fAnio === "TODOS" || String(d.anio).includes(fAnio)) && (fMes === "TODOS" || d.mes === fMes) && (fAge === "TODOS" || d.agencia === fAge);
+        });
+
+        filtradosActuales.forEach(d => {
+            total += d.valor;
+            conteoMotivos[d.motivo] = (conteoMotivos[d.motivo] || 0) + 1;
+            cuerpo.innerHTML += `<tr><td><b>${d.contrato}</b></td><td>${d.agencia}</td><td>${d.mes}/${d.anio}</td><td style="font-size:11px;">${d.motivo}</td><td><b>$ ${d.valor.toLocaleString('en-US',{minimumFractionDigits:2})}</b></td></tr>`;
+        });
+
+        document.getElementById('txtMonto').innerText = `$ ${total.toLocaleString('en-US',{minimumFractionDigits:2})}`;
+        const sortedMotivos = Object.entries(conteoMotivos).sort((a,b)=>b[1]-a[1]);
+        sortedMotivos.forEach(([n, c]) => {
+            resMot.innerHTML += `<div class="ranking-item"><span>${n}</span><b>${c}</b></div>`;
+        });
+        actualizarGrafico(conteoMotivos);
+    }
+
+    function actualizarGrafico(dataMotivos) {
+        const ctx = document.getElementById('graficoMotivos').getContext('2d');
+        if (miGrafico) miGrafico.destroy();
+        miGrafico = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(dataMotivos),
+                datasets: [{
+                    data: Object.values(dataMotivos),
+                    backgroundColor: ['#008542', '#FFC107', '#2196F3', '#F44336', '#9C27B0', '#00BCD4', '#FF5722'],
+                    borderWidth: 2
+                }]
+            },
+            options: { plugins: { legend: { display: false } }, cutout: '65%' }
+        });
+    }
+
+    function exportarExcel() {
+        if (filtradosActuales.length === 0) {
+            alert("No hay datos para exportar");
+            return;
+        }
+        
+        // Preparar los datos para el Excel
+        const datosExcel = filtradosActuales.map(d => ({
+            "Contrato": d.contrato,
+            "Agencia": d.agencia,
+            "Mes": d.mes,
+            "Año": d.anio,
+            "Motivo/Falla": d.motivo,
+            "Valor USD": d.valor
+        }));
+
+        const hoja = XLSX.utils.json_to_sheet(datosExcel);
+        const libro = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(libro, hoja, "Reporte Devoluciones");
+        
+        // Descargar el archivo
+        const nombreArchivo = `Reporte_Europcar_${new Date().toLocaleDateString()}.xlsx`;
+        XLSX.writeFile(libro, nombreArchivo);
+    }
+
+    window.onload = cargarConsolidado;
+</script>
+</body>
+</html>
