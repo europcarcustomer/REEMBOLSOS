@@ -43,6 +43,7 @@
                     <th>Agencia</th>
                     <th>Mes/Año</th>
                     <th>Motivo (Falla)</th>
+                    <th>Método</th>
                     <th>Valor</th>
                 </tr>
             </thead>
@@ -108,9 +109,13 @@
         const sep = filas[0].includes(';') ? ';' : ',';
         const h = filas[0].split(sep).map(t => t.toUpperCase().trim().replace(/"/g, ''));
         
-        const iCon = h.findIndex(c => c.includes("CONT")), iAge = h.findIndex(c => c.includes("AGEN")),
-              iMes = h.findIndex(c => c.includes("MES")), iVal = h.findIndex(c => c.includes("VAL") || c.includes("MONTO")),
-              iAnio = h.findIndex(c => c.includes("AÑO") || c.includes("ANO")), iFalla = h.findIndex(c => c.includes("FALLA"));
+        const iCon = h.findIndex(c => c.includes("CONT")), 
+              iAge = h.findIndex(c => c.includes("AGEN")),
+              iMes = h.findIndex(c => c.includes("MES")), 
+              iVal = h.findIndex(c => c.includes("VAL") || c.includes("MONTO")),
+              iAnio = h.findIndex(c => c.includes("AÑO") || c.includes("ANO")), 
+              iFalla = h.findIndex(c => c.includes("FALLA")),
+              iMetodo = h.findIndex(c => c.includes("METODO") || c.includes("METOD"));
 
         return filas.slice(1).map(f => {
             const c = f.split(new RegExp(`${sep}(?=(?:(?:[^"]*"){2})*[^"]*$)`));
@@ -121,6 +126,7 @@
                 mes: (c[iMes] || "").replace(/"/g, '').trim().toUpperCase(),
                 anio: iAnio !== -1 && c[iAnio] ? c[iAnio].replace(/"/g, '').trim() : anioDefault,
                 motivo: iFalla !== -1 && c[iFalla] ? c[iFalla].replace(/"/g, '').trim().toUpperCase() : "OTRO",
+                metodo: iMetodo !== -1 && c[iMetodo] ? c[iMetodo].replace(/"/g, '').trim().toUpperCase() : "N/A",
                 valor: parseFloat(v) || 0
             };
         }).filter(d => d.contrato !== "");
@@ -151,7 +157,14 @@
         filtradosActuales.forEach(d => {
             total += d.valor;
             conteoMotivos[d.motivo] = (conteoMotivos[d.motivo] || 0) + 1;
-            cuerpo.innerHTML += `<tr><td><b>${d.contrato}</b></td><td>${d.agencia}</td><td>${d.mes}/${d.anio}</td><td style="font-size:11px;">${d.motivo}</td><td><b>$ ${d.valor.toLocaleString('en-US',{minimumFractionDigits:2})}</b></td></tr>`;
+            cuerpo.innerHTML += `<tr>
+                <td><b>${d.contrato}</b></td>
+                <td>${d.agencia}</td>
+                <td>${d.mes}/${d.anio}</td>
+                <td style="font-size:11px;">${d.motivo}</td>
+                <td style="font-size:11px;"><b>${d.metodo}</b></td>
+                <td><b>$ ${d.valor.toLocaleString('en-US',{minimumFractionDigits:2})}</b></td>
+            </tr>`;
         });
 
         document.getElementById('txtMonto').innerText = `$ ${total.toLocaleString('en-US',{minimumFractionDigits:2})}`;
@@ -192,6 +205,7 @@
             "Mes": d.mes,
             "Año": d.anio,
             "Motivo/Falla": d.motivo,
+            "Método": d.metodo,
             "Valor USD": d.valor
         }));
 
